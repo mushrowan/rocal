@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use icalendar::{Calendar, CalendarComponent, CalendarDateTime, Component, DatePerhapsTime, Event};
-use std::fs::File;
+use std::fs::{read_to_string, File};
 use std::io::{Error, Read};
 use std::path::Path;
 
@@ -50,9 +50,9 @@ fn remove_intersecting_segments(
     timeblocks
 }
 
-fn read_calendar_from_file(mut cf: File) -> Calendar {
-    let mut cal_contents = String::new();
-    cf.read_to_string(&mut cal_contents);
+fn read_calendar_from_file(cf: Path) -> Calendar {
+    let cal_contents: String = read_to_string(cf)?;
+    println!("parsing calendar {:?}", &cal_contents);
     let cal: Calendar = cal_contents.parse::<Calendar>().unwrap();
     cal
 }
@@ -61,6 +61,7 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
     let mut events_on_target_date: Vec<Event> = Vec::new();
     for component in cal.components {
         if let CalendarComponent::Event(event) = component {
+            println!("{:?}", &event.get_description().unwrap());
             if let (
                 Some(DatePerhapsTime::DateTime(start_date_)),
                 Some(DatePerhapsTime::DateTime(end_date_)),
@@ -71,6 +72,7 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
                     CalendarDateTime::Floating(end_date),
                 ) = (start_date_, end_date_)
                 {
+                    println!("{:?}", start_date.date());
                     if day == start_date.date() || day == end_date.date() {
                         events_on_target_date.push(event);
                     }
@@ -92,8 +94,40 @@ fn main() -> Result<(), std::io::Error> {
     for line in timeblocks {
         println!("{}, {}", line[0], line[1]);
     }
-    let cal_path = Path::new("/home/rain/.calendar/rowan/YLWN7J10GUMCFWZOF4LXD82YEVP7F18W0JDU.ics");
-    let mut cal_file = File::open(&cal_path)?;
-    let mut cal = read_calendar_from_file(cal_file);
+    let cal_dir = Path::new("/home/rain/.calendar/ro");
+    let cal_dir_contents = cal_dir
+        .read_dir()
+        .expect("read_dir on calendar directory path failed")
+        .map(|p| p.unwrap().path())
+        .collect::<Vec<_>>();
+
+    let all_calendars = cal_dir_contents
+        .clone()
+        .into_iter()
+        .filter(|p| p.ends_with(".ics"))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|c| read_calendar_from_file(c.as_path().unwrap()))
+        .collect::<Vec<_>>();
+
+    for calendar in &all_calendars {
+        println!("{:?}", calendar.get_name().unwrap());
+    }
+
+    // debug
+    for cal_file in &cal_dir_contents {
+        println!("{:?}", cal_file)
+    }
+    let all_events_on_day = all_calendars
+        .into_iter()
+        .map(|c| get_events_on_day(today, c))
+        .collect::<Vec<_>>()
+        .concat();
+    for event in &all_events_on_day {
+        println!("{:?}", event.get_summary().unwrap())
+    }
+    println!("{:?}", &today);
+    println!("{:?}", all_events_on_day);
+
     Ok(())
 }
