@@ -1,8 +1,9 @@
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
+use chrono_tz::UTC;
 use icalendar::{Calendar, CalendarComponent, CalendarDateTime, Component, DatePerhapsTime, Event};
 use std::fs::{read_to_string, File};
 use std::io::{Error, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // Roadmap:
 // make a bunch of timeblocks for each half hour segment in the cal.
@@ -27,13 +28,18 @@ fn get_timeblocks(
 }
 
 fn event_intersects_with_timeblock(timeblock: [NaiveDateTime; 2], event: &Event) -> bool {
+    dbg!(&event);
     match (event.get_start(), event.get_end()) {
         (Some(DatePerhapsTime::DateTime(es_)), Some(DatePerhapsTime::DateTime(ee_))) => {
+            dbg!(&es_);
+            dbg!(&ee_);
             match (es_, ee_) {
                 (CalendarDateTime::Floating(es), CalendarDateTime::Floating(ee)) => {
-                    (timeblock[0] < ee && ee < timeblock[1])
-                        || (timeblock[0] < es && es < timeblock[1])
-                        || (es <= timeblock[0] && timeblock[1] <= ee)
+                    dbg!(
+                        (timeblock[0] < es && es < timeblock[1])
+                            || (timeblock[0] < ee && ee < timeblock[1])
+                            || (es <= timeblock[0] && timeblock[1] <= ee)
+                    )
                 }
                 _ => false,
             }
@@ -50,10 +56,13 @@ fn remove_intersecting_segments(
     timeblocks
 }
 
-fn read_calendar_from_file(cf: Path) -> Calendar {
-    let cal_contents: String = read_to_string(cf)?;
+fn read_calendar_from_file(cf: PathBuf) -> Calendar {
+    let cal_contents: String = read_to_string(cf).unwrap();
     println!("parsing calendar {:?}", &cal_contents);
     let cal: Calendar = cal_contents.parse::<Calendar>().unwrap();
+    for property in &cal.properties {
+        println! {"{:?}: {:?}", property.key(), property.value()};
+    }
     cal
 }
 
@@ -61,19 +70,19 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
     let mut events_on_target_date: Vec<Event> = Vec::new();
     for component in cal.components {
         if let CalendarComponent::Event(event) = component {
-            println!("{:?}", &event.get_description().unwrap());
+            println!("event description: {:?}", &event.get_description().unwrap());
+            dbg!(&event);
             if let (
                 Some(DatePerhapsTime::DateTime(start_date_)),
                 Some(DatePerhapsTime::DateTime(end_date_)),
             ) = (event.get_start(), event.get_end())
             {
-                if let (
-                    CalendarDateTime::Floating(start_date),
-                    CalendarDateTime::Floating(end_date),
-                ) = (start_date_, end_date_)
+                let start_datetime: NaiveDateTime =
+                    start_date_.try_into_utc().unwrap().naive_local();
+                let end_datetime: NaiveDateTime = end_date_.try_into_utc().unwrap().naive_local();
                 {
-                    println!("{:?}", start_date.date());
-                    if day == start_date.date() || day == end_date.date() {
+                    println!("start date: {:?}", start_datetime.date());
+                    if day == start_datetime.date() || day == end_datetime.date() {
                         events_on_target_date.push(event);
                     }
                 }
@@ -91,43 +100,44 @@ fn main() -> Result<(), std::io::Error> {
     let end_datetime = NaiveDateTime::new(today, et);
     let chunk_duration: TimeDelta = TimeDelta::minutes(30);
     let mut timeblocks = get_timeblocks(start_datetime, end_datetime, chunk_duration);
-    for line in timeblocks {
+    for line in &timeblocks {
         println!("{}, {}", line[0], line[1]);
     }
-    let cal_dir = Path::new("/home/rain/.calendar/ro");
+    let cal_dir = Path::new("/home/rowan/.calendar/ro");
     let cal_dir_contents = cal_dir
         .read_dir()
         .expect("read_dir on calendar directory path failed")
-        .map(|p| p.unwrap().path())
+        .map(|p| p.expect("failed to get Direntry").path())
         .collect::<Vec<_>>();
+
+    for cal_file in &cal_dir_contents {
+        println!("cal file: {:?}", cal_file)
+    }
 
     let all_calendars = cal_dir_contents
-        .clone()
         .into_iter()
-        .filter(|p| p.ends_with(".ics"))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .map(|c| read_calendar_from_file(c.as_path().unwrap()))
+        //.filter(|p| p.ends_with(".ics"))
+        //.collect::<Vec<_>>()
+        //.into_iter()
+        .map(|c| read_calendar_from_file(c))
         .collect::<Vec<_>>();
 
-    for calendar in &all_calendars {
-        println!("{:?}", calendar.get_name().unwrap());
-    }
-
-    // debug
-    for cal_file in &cal_dir_contents {
-        println!("{:?}", cal_file)
-    }
     let all_events_on_day = all_calendars
         .into_iter()
         .map(|c| get_events_on_day(today, c))
         .collect::<Vec<_>>()
         .concat();
+    // debug
     for event in &all_events_on_day {
-        println!("{:?}", event.get_summary().unwrap())
+        println!("event summary: {:?}", event.get_summary().unwrap());
+        timeblocks = remove_intersecting_segments(event, timeblocks);
     }
     println!("{:?}", &today);
     println!("{:?}", all_events_on_day);
+    println!("Timeblocks after removing intersecting segments:");
+    for line in &timeblocks {
+        println!("{}, {}", line[0], line[1]);
+    }
 
     Ok(())
 }
