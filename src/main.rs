@@ -83,6 +83,7 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
 }
 
 fn main() -> Result<(), std::io::Error> {
+    println!("welcome to rocal!");
     let today = Local::now().date_naive();
     let now = Local::now();
     let now_naive = Local::now().naive_local();
