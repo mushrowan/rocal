@@ -85,11 +85,6 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
 fn main() -> Result<(), std::io::Error> {
     println!("welcome to rocal!");
     let today = Local::now().date_naive();
-    let now = Local::now();
-    let now_naive = Local::now().naive_local();
-    dbg!(&today);
-    dbg!(&now);
-    dbg!(&now_naive);
     let st: NaiveTime = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
     let et: NaiveTime = NaiveTime::from_hms_opt(19, 0, 0).unwrap();
     let start_datetime = NaiveDateTime::new(today, st);
