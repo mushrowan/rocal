@@ -1,13 +1,10 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
-use chrono_tz::UTC;
-use icalendar::{Calendar, CalendarComponent, CalendarDateTime, Component, DatePerhapsTime, Event};
-use std::fs::{read_to_string, File};
-use std::io::{Error, Read};
+use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
+use inquire::Text;
+use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
 
 // Roadmap:
-// make a bunch of timeblocks for each half hour segment in the cal.
-// remove the timeblocks which intersect with events.
 // for all the remaining timeblocks, prompt for a thing to do - suggest tasks.
 // once done, add all to the calendar.
 fn get_timeblocks(
@@ -67,16 +64,16 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
     let mut events_on_target_date: Vec<Event> = Vec::new();
     for component in cal.components {
         if let CalendarComponent::Event(event) = component {
-            println!("Event found: {:?}", &event.get_description().unwrap());
-            if let (
-                Some(DatePerhapsTime::DateTime(start_date_)),
-                Some(DatePerhapsTime::DateTime(end_date_)),
-            ) = (event.get_start(), event.get_end())
+            if let (Some(DatePerhapsTime::DateTime(sd_)), Some(DatePerhapsTime::DateTime(ed_))) =
+                (event.get_start(), event.get_end())
             {
-                let start_datetime: NaiveDateTime =
-                    start_date_.try_into_utc().unwrap().naive_local();
-                let end_datetime: NaiveDateTime = end_date_.try_into_utc().unwrap().naive_local();
-                if day == start_datetime.date() || day == end_datetime.date() {
+                let sd_utc: DateTime<Utc> = sd_.try_into_utc().unwrap();
+                let ed_utc: DateTime<Utc> = ed_.try_into_utc().unwrap();
+                let sd_local: DateTime<Local> = DateTime::from(sd_utc);
+                let ed_local: DateTime<Local> = DateTime::from(ed_utc);
+                let sd: NaiveDateTime = sd_local.naive_local();
+                let ed: NaiveDateTime = ed_local.naive_local();
+                if sd.date() == day || ed.date() == day {
                     events_on_target_date.push(event);
                 }
             }
@@ -98,7 +95,7 @@ fn main() -> Result<(), std::io::Error> {
     let end_datetime = NaiveDateTime::new(today, et);
     let chunk_duration: TimeDelta = TimeDelta::minutes(30);
     let mut timeblocks = get_timeblocks(start_datetime, end_datetime, chunk_duration);
-    let cal_dir = Path::new("/home/rowan/.calendar/ro");
+    let cal_dir = Path::new("/home/rain/.calendar/ro");
     let cal_dir_contents = cal_dir
         .read_dir()
         .expect("read_dir on calendar directory path failed")
@@ -114,7 +111,7 @@ fn main() -> Result<(), std::io::Error> {
         //.filter(|p| p.ends_with(".ics"))
         //.collect::<Vec<_>>()
         //.into_iter()
-        .map(|c| read_calendar_from_file(c))
+        .map(read_calendar_from_file)
         .collect::<Vec<_>>();
 
     let all_events_on_day = all_calendars
@@ -130,6 +127,24 @@ fn main() -> Result<(), std::io::Error> {
     for line in &timeblocks {
         println!("{}, {}", line[0], line[1]);
     }
+    let mut plan_chunks: Vec<Event> = vec![];
+    // let mut blocks_without_break: u8 = 0;
+    for block in &timeblocks {
+        let prompt = format!(
+            "Enter a task for {:?}-{:?}: ",
+            block[0].time(),
+            block[1].time()
+        );
+        let block_name = Text::new(&prompt).prompt().unwrap();
+        let mut chunk = Event::new();
+        chunk.summary(&block_name);
+        chunk.starts(block[0]);
+        chunk.ends(block[1]);
+        plan_chunks.push(chunk);
+    }
+    let day_plan: Calendar = plan_chunks.into_iter().collect::<Calendar>();
+    let debug_output_cal = Path::new("/home/rain/.calendar/ro/test_output_cal.ics");
+    let _ = write(debug_output_cal, format!("{}", day_plan));
 
     Ok(())
 }
