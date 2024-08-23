@@ -1,6 +1,7 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
+use dirs::home_dir;
 use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
-use inquire::Text;
+use inquire::{DateSelect, Text};
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
 
@@ -67,8 +68,12 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
             if let (Some(DatePerhapsTime::DateTime(sd_)), Some(DatePerhapsTime::DateTime(ed_))) =
                 (event.get_start(), event.get_end())
             {
-                let sd_utc: DateTime<Utc> = sd_.try_into_utc().unwrap();
-                let ed_utc: DateTime<Utc> = ed_.try_into_utc().unwrap();
+                let sd_utc: DateTime<Utc> = sd_
+                    .try_into_utc()
+                    .expect("Couldnt convert event time into utc.");
+                let ed_utc: DateTime<Utc> = ed_
+                    .try_into_utc()
+                    .expect("Couldnt convert event time into utc.");
                 let sd_local: DateTime<Local> = DateTime::from(sd_utc);
                 let ed_local: DateTime<Local> = DateTime::from(ed_utc);
                 let sd: NaiveDateTime = sd_local.naive_local();
@@ -84,14 +89,18 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
 
 fn main() -> Result<(), std::io::Error> {
     println!("welcome to rocal!");
-    let today = Local::now().date_naive();
+    let tomorrow = Local::now().date_naive() + TimeDelta::days(1);
     let st: NaiveTime = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
     let et: NaiveTime = NaiveTime::from_hms_opt(19, 0, 0).unwrap();
-    let start_datetime = NaiveDateTime::new(today, st);
-    let end_datetime = NaiveDateTime::new(today, et);
+    let start_datetime = NaiveDateTime::new(tomorrow, st);
+    let end_datetime = NaiveDateTime::new(tomorrow, et);
     let chunk_duration: TimeDelta = TimeDelta::minutes(30);
     let mut timeblocks = get_timeblocks(start_datetime, end_datetime, chunk_duration);
-    let cal_dir = Path::new("/home/rain/.calendar/ro");
+    // let cal_dir = Path::new("/home/rain/.calendar/ro");
+    let mut cal_dir = home_dir().expect("unable to get home directory.");
+    cal_dir.push(".calendar");
+    cal_dir.push("ro");
+
     let cal_dir_contents = cal_dir
         .read_dir()
         .expect("read_dir on calendar directory path failed")
@@ -112,7 +121,7 @@ fn main() -> Result<(), std::io::Error> {
 
     let all_events_on_day = all_calendars
         .into_iter()
-        .map(|c| get_events_on_day(today, c))
+        .map(|c| get_events_on_day(tomorrow, c))
         .collect::<Vec<_>>()
         .concat();
     // debug
@@ -124,14 +133,32 @@ fn main() -> Result<(), std::io::Error> {
         println!("{}, {}", line[0], line[1]);
     }
     let mut plan_chunks: Vec<Event> = vec![];
-    // let mut blocks_without_break: u8 = 0;
+    let mut blocks_without_break: u8 = 0;
+    let date_selector = DateSelect::new("When do you want to plan for?")
+        .with_starting_date(Local::today().naive_local())
+        .with_week_start(chrono::Weekday::Sun)
+        // .with_help_message("Possible flights will be displayed according to the selected date")
+        .prompt()
+        .expect("prompting for date failed. somehow.");
     for block in &timeblocks {
+        if blocks_without_break >= 4 {
+            println!(
+                "You have gone {:?} blocks without a break.",
+                blocks_without_break
+            );
+            println!("Take a break soon! Name a block \"break\" to reset the break count.");
+        }
         let prompt = format!(
             "Enter a task for {:?}-{:?}: ",
             block[0].time(),
             block[1].time()
         );
         let block_name = Text::new(&prompt).prompt().unwrap();
+        if block_name == "break" {
+            blocks_without_break = 0;
+        } else {
+            blocks_without_break += 1;
+        }
         let mut chunk = Event::new();
         chunk.summary(&block_name);
         chunk.starts(block[0]);
@@ -139,7 +166,8 @@ fn main() -> Result<(), std::io::Error> {
         plan_chunks.push(chunk);
     }
     let day_plan: Calendar = plan_chunks.into_iter().collect::<Calendar>();
-    let debug_output_cal = Path::new("/home/rain/.calendar/ro/test_output_cal.ics");
+    let mut debug_output_cal = cal_dir.clone();
+    debug_output_cal.push("test_output_cal.ics");
     let _ = write(debug_output_cal, format!("{}", day_plan));
 
     Ok(())
