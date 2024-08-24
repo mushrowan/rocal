@@ -11,7 +11,12 @@ use std::{str::FromStr, string::FromUtf8Error};
 use http::{
     response::Parts, status::InvalidStatusCode, uri::PathAndQuery, Method, Request, StatusCode, Uri,
 };
-use hyper::{body::Bytes, client::connect::Connect, Body, Client};
+use http_body_util::BodyExt;
+use hyper::body::Bytes;
+use hyper_util::{
+    client::legacy::{connect::Connect, Client},
+    rt::TokioExecutor,
+};
 use percent_encoding::percent_decode_str;
 
 use crate::{
@@ -29,6 +34,9 @@ pub enum RequestError {
     #[error("error executing http request: {0}")]
     Http(#[from] hyper::Error),
 
+    #[error("client error executing request: {0}")]
+    Client(#[from] hyper_util::client::legacy::Error),
+
     #[error("error resolving authentication: {0}")]
     BadAuth(#[from] std::io::Error),
 }
@@ -39,6 +47,9 @@ pub enum RequestError {
 pub enum WebDavError {
     #[error("error executing http request: {0}")]
     Http(#[from] hyper::Error),
+
+    #[error("client error executing http request: {0}")]
+    Client(#[from] hyper_util::client::legacy::Error),
 
     #[error("error resolving authentication: {0}")]
     BadAuth(#[from] std::io::Error),
@@ -78,6 +89,7 @@ impl From<RequestError> for WebDavError {
     fn from(value: RequestError) -> Self {
         match value {
             RequestError::Http(err) => WebDavError::Http(err),
+            RequestError::Client(err) => WebDavError::Client(err),
             RequestError::BadAuth(err) => WebDavError::BadAuth(err),
         }
     }
@@ -109,10 +121,14 @@ pub enum FindCurrentUserPrincipalError {
     InvalidInput(#[from] http::Error),
 }
 
-/// A generic webdav client.
+/// A webdav client.
+///
+/// The generic parameter `C` defines what kind of connector is used to establish new connections.
+// XXX: this could be generic over the Client instead (which implements Service<Request<B>>.
 #[derive(Debug, Clone)]
 pub struct WebDavClient<C>
 where
+    // `Sync + Send` are required due to hyper_util::client::legacy::client::Client::request
     C: Connect + Clone + Sync + Send + 'static,
 {
     /// Base URL to be used for all requests.
@@ -121,7 +137,7 @@ where
     /// requests are served.
     pub base_url: Uri,
     auth: Auth,
-    http_client: Client<C>,
+    http_client: Client<C, String>,
 }
 
 impl<C> WebDavClient<C>
@@ -136,7 +152,7 @@ where
         WebDavClient {
             base_url,
             auth,
-            http_client: Client::builder().build(connector),
+            http_client: Client::builder(TokioExecutor::new()).build(connector),
         }
     }
 
@@ -290,7 +306,7 @@ where
             .uri(url)
             .header("Content-Type", "application/xml; charset=utf-8")
             .header("Depth", depth.to_string())
-            .body(Body::from(body))?;
+            .body(body)?;
 
         self.request(request).await.map_err(WebDavError::from)
     }
@@ -302,13 +318,13 @@ where
     /// # Errors
     ///
     /// Returns an error if the underlying http request fails or if streaming the response fails.
-    pub async fn request(&self, request: Request<Body>) -> Result<(Parts, Bytes), RequestError> {
+    pub async fn request(&self, request: Request<String>) -> Result<(Parts, Bytes), RequestError> {
         // QUIRK: When trying to fetch a resource on a URL that is a collection, iCloud
         // will terminate the connection (which returns "unexpected end of file").
 
         let response = self.http_client.request(self.auth.apply(request)?).await?;
         let (head, body) = response.into_parts();
-        let body = hyper::body::to_bytes(body).await?;
+        let body = body.collect().await?.to_bytes();
 
         log::trace!("Response ({}): {:?}", head.status, body);
         Ok((head, body))
@@ -435,7 +451,7 @@ where
             .method("PROPPATCH")
             .uri(url)
             .header("Content-Type", "application/xml; charset=utf-8")
-            .body(Body::from(format!(
+            .body(format!(
                 r#"<propertyupdate xmlns="DAV:">
                 <{action}>
                     <prop>
@@ -443,7 +459,7 @@ where
                     </prop>
                 </{action}>
             </propertyupdate>"#
-            )))?;
+            ))?;
 
         let (head, body) = self.request(request).await?;
         check_status(head.status)?;
@@ -483,7 +499,7 @@ where
         let request = Request::builder()
             .method(Method::GET)
             .uri(uri)
-            .body(Body::default())?;
+            .body(String::new())?;
 
         // From https://www.rfc-editor.org/rfc/rfc6764#section-5:
         // > [...] the server MAY require authentication when a client tries to
@@ -564,7 +580,9 @@ where
             None => builder.header("If-None-Match", "*"),
         };
 
-        let request = builder.body(Body::from(data))?;
+        let request = String::from_utf8(data)
+            .map_err(|e| WebDavError::NotUtf8(e.utf8_error()))
+            .map(|string| builder.body(string))??;
 
         let (head, _body) = self.request(request).await?;
         check_status(head.status)?;
@@ -652,7 +670,7 @@ where
             .method("MKCOL")
             .uri(self.relative_uri(href.as_ref())?)
             .header("Content-Type", "application/xml; charset=utf-8")
-            .body(Body::from(body))?;
+            .body(body)?;
 
         let (head, _body) = self.request(request).await?;
         // TODO: we should check the response body here, if present.
@@ -684,7 +702,7 @@ where
             .uri(self.relative_uri(href.as_ref())?)
             .header("Content-Type", "application/xml; charset=utf-8")
             .header("If-Match", etag.as_ref())
-            .body(Body::empty())?;
+            .body(String::new())?;
 
         let (head, _body) = self.request(request).await?;
 
@@ -707,7 +725,7 @@ where
             .method(Method::DELETE)
             .uri(self.relative_uri(href.as_ref())?)
             .header("Content-Type", "application/xml; charset=utf-8")
-            .body(Body::empty())?;
+            .body(String::new())?;
 
         let (head, _body) = self.request(request).await?;
 
@@ -724,7 +742,7 @@ where
             .method("REPORT")
             .uri(self.relative_uri(collection_href)?)
             .header("Content-Type", "application/xml; charset=utf-8")
-            .body(Body::from(body))?;
+            .body(body)?;
 
         let (head, body) = self.request(request).await?;
         check_status(head.status)?;

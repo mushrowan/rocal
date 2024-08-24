@@ -4,8 +4,8 @@
 
 use std::ops::Deref;
 
-use hyper::client::connect::Connect;
 use hyper::Uri;
+use hyper_util::client::legacy::connect::Connect;
 
 use crate::common::{check_support, parse_find_multiple_collections};
 use crate::dav::WebDavClient;
@@ -15,12 +15,12 @@ use crate::xmlutils::quote_href;
 use crate::{names, FindHomeSetError, InvalidUrl};
 use crate::{CheckSupportError, FetchedResource};
 
-/// Client to communicate with a carddav server.
+/// Client to communicate with a caldav server.
 ///
-/// Instances are usually created via [`CardDavClient::new`].
+/// Instances are usually created via [`CalDavClient::new`].
 ///
 /// ```rust
-/// # use libdav::CardDavClient;
+/// # use libdav::CalDavClient;
 /// # use libdav::dav::WebDavClient;
 /// use http::Uri;
 /// use libdav::auth::{Auth, Password};
@@ -41,14 +41,14 @@ use crate::{CheckSupportError, FetchedResource};
 ///     .build();
 /// let webdav = WebDavClient::new(uri, auth, https);
 /// // Optionally, perform bootstrap sequence here.
-/// let client = CardDavClient::new(webdav);
+/// let client = CalDavClient::new(webdav);
 /// # })
 /// ```
 ///
-/// If the real CardDav server needs to be resolved via bootstrapping, see
+/// If the real CalDav server needs to be resolved via bootstrapping, see
 /// [`find_context_url`].
-#[derive(Debug)]
-pub struct CardDavClient<C>
+#[derive(Debug, Clone)]
+pub struct CalDavClient<C>
 where
     C: Connect + Clone + Sync + Send + 'static,
 {
@@ -56,7 +56,7 @@ where
     pub webdav_client: WebDavClient<C>,
 }
 
-impl<C> Deref for CardDavClient<C>
+impl<C> Deref for CalDavClient<C>
 where
     C: Connect + Clone + Sync + Send,
 {
@@ -67,13 +67,13 @@ where
     }
 }
 
-impl<C> CardDavClient<C>
+impl<C> CalDavClient<C>
 where
     C: Connect + Clone + Sync + Send,
 {
     /// Create a new client instance.
-    pub fn new(webdav_client: WebDavClient<C>) -> CardDavClient<C> {
-        CardDavClient { webdav_client }
+    pub fn new(webdav_client: WebDavClient<C>) -> CalDavClient<C> {
+        CalDavClient { webdav_client }
     }
 
     /// Create a new client instance.
@@ -89,22 +89,22 @@ where
     /// - The underlying call to [`find_context_url`] returns an error.
     pub async fn new_via_bootstrap(
         mut webdav_client: WebDavClient<C>,
-    ) -> Result<CardDavClient<C>, BootstrapError> {
+    ) -> Result<CalDavClient<C>, BootstrapError> {
         let service = service_for_url(&webdav_client.base_url)?;
         if let Some(context_path) = find_context_url(&webdav_client, service).await? {
             webdav_client.base_url = context_path;
         }
-        Ok(CardDavClient { webdav_client })
+        Ok(CalDavClient { webdav_client })
     }
 
-    /// Queries the server for the address book home set.
+    /// Queries the server for the calendar home set.
     ///
     /// See: <https://www.rfc-editor.org/rfc/rfc4791#section-6.2.1>
     ///
     /// # Errors
     ///
     /// If there are any network errors or the response could not be parsed.
-    pub async fn find_address_book_home_set(
+    pub async fn find_calendar_home_set(
         &self,
         principal: &Uri,
     ) -> Result<Vec<Uri>, FindHomeSetError>
@@ -113,88 +113,100 @@ where
     {
         // If obtaining a principal fails, the specification says we should query the user. This
         // tries to use the `base_url` first, since the user might have provided it for a reason.
-        self.find_hrefs_prop_as_uri(principal, &names::ADDRESSBOOK_HOME_SET)
+        self.find_hrefs_prop_as_uri(principal, &names::CALENDAR_HOME_SET)
             .await
             .map_err(FindHomeSetError)
     }
 
     // TODO: methods to serialise and deserialise (mostly to cache all discovery data).
 
-    /// Find address book collections under the given `url`.
+    /// Find calendars collections under the given `url`.
     ///
-    /// If `url` is not specified, this client's address book home set is used instead. If no
-    /// address book home set has been found, then the server's context path will be used. When
-    /// using a client bootstrapped via automatic discovery, passing `None` will usually yield the
-    /// expected results.
+    /// If `url` is not specified, this client's calendar home set is used instead. If no calendar
+    /// home set has been found, then the server's context path will be used. When using a client
+    /// bootstrapped via automatic discovery, passing `None` will usually yield the expected
+    /// results.
     ///
     /// # Errors
     ///
     /// If the HTTP call fails or parsing the XML response fails.
-    pub async fn find_addressbooks(
+    pub async fn find_calendars(
         &self,
-        address_book_home_set: &Uri,
+        calendar_home_set: &Uri,
     ) -> Result<Vec<FoundCollection>, WebDavError> {
         let props = [
             &names::RESOURCETYPE,
             &names::GETETAG,
             &names::SUPPORTED_REPORT_SET,
         ];
-        let (head, body) = self.propfind(address_book_home_set, &props, 1).await?;
+        let (head, body) = self.propfind(calendar_home_set, &props, 1).await?;
         check_status(head.status)?;
 
-        parse_find_multiple_collections(body, &names::ADDRESSBOOK)
+        parse_find_multiple_collections(body, &names::CALENDAR)
     }
 
-    /// Fetches existing vcard resources.
+    // TODO: check link in doc:
+    // TODO: same note on carddav.
+    /// Fetches existing icalendar resources.
+    ///
+    /// If the `getetag` property is missing for an item, it will be reported as
+    /// [`http::StatusCode::NOT_FOUND`]. This should not be an actual issue with in practice, since
+    /// support for `getetag` is mandatory for CalDav implementations.
     ///
     /// # Errors
     ///
     /// If there are any network errors or the response could not be parsed.
-    pub async fn get_address_book_resources(
+    pub async fn get_calendar_resources(
         &self,
-        addressbook_href: impl AsRef<str>,
+        calendar_href: impl AsRef<str>,
         hrefs: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> Result<Vec<FetchedResource>, WebDavError> {
         let mut body = String::from(
             r#"
-            <C:addressbook-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">
-                <D:prop>
-                    <D:getetag/>
-                    <C:address-data/>
-                </D:prop>"#,
+            <C:calendar-multiget xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+                <prop>
+                    <getetag/>
+                    <C:calendar-data/>
+                </prop>"#,
         );
         for href in hrefs {
             let href = quote_href(href.as_ref().as_bytes());
-            body.push_str("<D:href>");
+            body.push_str("<href>");
             body.push_str(&href);
-            body.push_str("</D:href>");
+            body.push_str("</href>");
         }
-        body.push_str("</C:addressbook-multiget>");
+        body.push_str("</C:calendar-multiget>");
 
-        self.multi_get(addressbook_href.as_ref(), body, &names::ADDRESS_DATA)
+        self.multi_get(calendar_href.as_ref(), body, &names::CALENDAR_DATA)
             .await
     }
 
-    /// Checks that the given URI advertises carddav support.
+    /// Checks that the given URI advertises caldav support.
     ///
-    /// See: <https://www.rfc-editor.org/rfc/rfc6352#section-6.1>
+    /// See: <https://www.rfc-editor.org/rfc/rfc4791#section-5.1>
+    ///
+    /// # Known Issues
+    ///
+    /// - This is currently broken on Nextcloud. [Bug report][nextcloud].
+    ///
+    /// [nextcloud]: https://github.com/nextcloud/server/issues/37374
     ///
     /// # Errors
     ///
-    /// If there are any network issues or if the server does not explicitly advertise carddav
+    /// If there are any network issues or if the server does not explicitly advertise caldav
     /// support.
     pub async fn check_support(&self, url: &Uri) -> Result<(), CheckSupportError> {
-        check_support(&self.webdav_client, url, "addressbook").await
+        check_support(&self.webdav_client, url, "calendar-access").await
     }
 
-    /// Create an address book collection.
+    /// Create an calendar collection.
     ///
     /// # Errors
     ///
     /// Returns an error in case of network errors or if the server returns a failure status code.
-    pub async fn create_addressbook(&self, href: impl AsRef<str>) -> Result<(), WebDavError> {
+    pub async fn create_calendar(&self, href: impl AsRef<str>) -> Result<(), WebDavError> {
         self.webdav_client
-            .create_collection(href, &[&names::ADDRESSBOOK])
+            .create_collection(href, &[&names::CALENDAR])
             .await
     }
 }
@@ -203,11 +215,11 @@ where
 ///
 /// # Errors
 ///
-/// If `url` is missing a scheme or has a scheme invalid for CardDav usage.
+/// If `url` is missing a scheme or has a scheme invalid for CalDav usage.
 pub fn service_for_url(url: &Uri) -> Result<DiscoverableService, InvalidUrl> {
     match url.scheme().ok_or(InvalidUrl::MissingScheme)?.as_ref() {
-        "https" | "carddavs" => Ok(DiscoverableService::CardDavs),
-        "http" | "carddav" => Ok(DiscoverableService::CardDav),
+        "https" | "caldavs" => Ok(DiscoverableService::CalDavs),
+        "http" | "caldav" => Ok(DiscoverableService::CalDav),
         _ => Err(InvalidUrl::InvalidScheme),
     }
 }

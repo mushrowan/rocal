@@ -1,0 +1,39 @@
+# Copyright 2023-2024 Hugo Osvaldo Barrera
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+[package]
+name = "libdav"
+version = "0.4.0"
+authors = ["Hugo Osvaldo Barrera <hugo@whynothugo.nl>"]
+edition = "2021"
+description = "CalDav and CardDav client implementations."
+homepage = "https://sr.ht/~whynothugo/vdirsyncer-rs/"
+repository = "https://git.sr.ht/~whynothugo/vdirsyncer-rs"
+license = "EUPL-1.2"
+keywords = ["caldav", "carddav", "webcal", "calendar", "contacts"]
+
+[workspace]
+members = [
+  ".",
+    "live_tests",
+]
+
+resolver = "2"
+
+[dependencies]
+base64 = "0.21.0"
+domain = { version = "0.9.3", features = ["resolv"] }
+email_address = { version = "0.2.4", default-features = false }
+http = "1"
+hyper = { version = "1", features = ["http1", "client"] }
+hyper-util = { version = "0.1.1", features = ["client", "client-legacy", "http1"] }
+http-body-util = "0.1.0"
+log = "0.4.17"
+percent-encoding = "2.3.0"
+roxmltree = { version = "0.18.1" }
+thiserror = "1.0.38"
+
+[dev-dependencies]
+tokio = "1.25.0"
+hyper-rustls = "0.26.0"

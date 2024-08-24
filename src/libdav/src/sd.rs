@@ -21,7 +21,7 @@ use domain::{
     resolv::{lookup::srv::SrvError, StubResolver},
 };
 use http::{uri::Scheme, Uri};
-use hyper::client::connect::Connect;
+use hyper_util::client::legacy::connect::Connect;
 
 use crate::{common::check_support, dav::WebDavClient, CheckSupportError, InvalidUrl};
 

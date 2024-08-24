@@ -12,6 +12,8 @@ use inquire::{DateSelect, Text};
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
 
+pub mod libdav;
+
 // Roadmap:
 // for all the remaining timeblocks, prompt for a thing to do - suggest tasks.
 // once done, add all to the calendar.

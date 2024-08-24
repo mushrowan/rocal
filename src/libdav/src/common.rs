@@ -12,7 +12,8 @@ use crate::{
 };
 
 use http::{Method, Request};
-use hyper::{client::connect::Connect, Body, Uri};
+use hyper::Uri;
+use hyper_util::client::legacy::connect::Connect;
 use log::debug;
 
 pub(crate) fn parse_find_multiple_collections(
@@ -73,7 +74,7 @@ where
     let request = Request::builder()
         .method(Method::OPTIONS)
         .uri(uri)
-        .body(Body::empty())?;
+        .body(String::new())?;
 
     let (head, _body) = client.request(request).await?;
     check_status(head.status)?;
