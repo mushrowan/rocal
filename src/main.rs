@@ -1,7 +1,14 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
 use dirs::home_dir;
+use http::Uri;
+use hyper_rustls::HttpsConnectorBuilder;
 use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
 use inquire::{DateSelect, Text};
+use libdav::{
+    auth::{Auth, Password},
+    dav::WebDavClient,
+    CalDavClient,
+};
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
 
@@ -59,6 +66,24 @@ fn read_calendar_from_file(cf: PathBuf) -> Calendar {
     let cal_contents: String = read_to_string(cf).unwrap();
     let cal: Calendar = cal_contents.parse::<Calendar>().unwrap();
     cal
+}
+
+fn get_calendar_from_caldav() {
+    let uri = Uri::try_from("https://calendar.roro.digital").unwrap();
+    let auth = Auth::Basic {
+        username: String::from("ro"),
+        password: Some(Password::from("stuffs")),
+    };
+
+    let https = HttpsConnectorBuilder::new()
+        .with_native_roots()
+        .unwrap()
+        .https_or_http()
+        .enable_http1()
+        .build();
+    let webdav = WebDavClient::new(uri, auth, https);
+    // Optionally, perform bootstrap sequence here.
+    let client = CalDavClient::new(webdav);
 }
 
 fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
