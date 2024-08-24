@@ -1,3 +1,9 @@
+# rocal: Ro's Calendar
+
+## A CalDAV-compatible TUI calendar & planner application
+
+## WORK IN PROGRESS
+
 ro's day planner thing! because i'm disorganised and i need help
 
 i'll maybe make a proper readme once this is ready for people to like, use it and stuff
