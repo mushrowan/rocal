@@ -1,14 +1,14 @@
+use crate::libdav::{
+    auth::{Auth, Password},
+    dav::WebDavClient,
+    CalDavClient,
+};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
 use dirs::home_dir;
 use http::Uri;
 use hyper_rustls::HttpsConnectorBuilder;
 use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
 use inquire::{DateSelect, Text};
-use libdav::{
-    auth::{Auth, Password},
-    dav::WebDavClient,
-    CalDavClient,
-};
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
 
@@ -69,7 +69,7 @@ fn read_calendar_from_file(cf: PathBuf) -> Calendar {
 }
 
 fn get_calendar_from_caldav() {
-    let uri = Uri::try_from("https://calendar.roro.digital").unwrap();
+    let uri = "https://calendar.roro.digital".parse::<Uri>().unwrap();
     let auth = Auth::Basic {
         username: String::from("ro"),
         password: Some(Password::from("stuffs")),
@@ -77,8 +77,8 @@ fn get_calendar_from_caldav() {
 
     let https = HttpsConnectorBuilder::new()
         .with_native_roots()
-        .unwrap()
-        .https_or_http()
+        .expect("no native root CA certificates found")
+        .https_only()
         .enable_http1()
         .build();
     let webdav = WebDavClient::new(uri, auth, https);
