@@ -22,18 +22,18 @@ members = [
 resolver = "2"
 
 [dependencies]
-base64 = "0.21.0"
-domain = { version = "0.9.3", features = ["resolv"] }
-email_address = { version = "0.2.4", default-features = false }
-http = "1"
-hyper = { version = "1", features = ["http1", "client"] }
-hyper-util = { version = "0.1.1", features = ["client", "client-legacy", "http1"] }
-http-body-util = "0.1.0"
-log = "0.4.17"
-percent-encoding = "2.3.0"
-roxmltree = { version = "0.18.1" }
-thiserror = "1.0.38"
+base64 = "0.22.1"
+domain = { version = "0.10.1", features = ["resolv"] }
+email_address = { version = "0.2.9", default-features = false }
+hyper-util = { version = "0.1.7", features = ["client", "client-legacy", "http1"] }
+http-body-util = "0.1.2"
+log = "0.4.22"
+percent-encoding = "2.3.1"
+roxmltree = { version = "0.20.0" }
+thiserror = "1.0.63"
+http = "1.1.0"
+hyper = { version = "1.4.1", features = ["http1", "client"] }
 
 [dev-dependencies]
-tokio = "1.25.0"
-hyper-rustls = "0.26.0"
+tokio = "1.39.3"
+hyper-rustls = "0.27.2"

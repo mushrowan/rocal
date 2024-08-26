@@ -23,12 +23,13 @@ fn get_timeblocks(
     let mut current_chunk = TimeBlock::new(start_time, chunk_duration);
     let mut timeblocks = vec![];
     while current_chunk.end_time <= end_time {
-        timeblocks.push([current_chunk]);
+        timeblocks.push(current_chunk);
         current_chunk = TimeBlock::new(current_chunk.start_time + chunk_duration, chunk_duration);
     }
     timeblocks
 }
 
+#[derive(Copy, Clone, Debug)]
 struct TimeBlock {
     start_time: NaiveDateTime,
     block_duration: TimeDelta,
@@ -39,7 +40,7 @@ impl TimeBlock {
         Self {
             start_time: start,
             block_duration: duration,
-            end_time: start + block,
+            end_time: start + duration,
         }
     }
 }
@@ -167,10 +168,7 @@ fn main() -> Result<(), std::io::Error> {
     for event in &all_events_on_day {
         timeblocks = remove_intersecting_segments(event, timeblocks);
     }
-    println!("Timeblocks after removing intersecting segments:");
-    for line in &timeblocks {
-        println!("{}, {}", line[0], line[1]);
-    }
+    dbg!(&timeblocks);
     let mut plan_chunks: Vec<Event> = vec![];
     let mut blocks_without_break: u8 = 0;
     for block in &timeblocks {
@@ -183,8 +181,8 @@ fn main() -> Result<(), std::io::Error> {
         }
         let prompt = format!(
             "Enter a task for {:?}-{:?}: ",
-            block[0].time(),
-            block[1].time()
+            block.start_time.time(),
+            block.end_time.time()
         );
         let block_name = Text::new(&prompt).prompt().unwrap();
         if block_name == "break" {
@@ -194,8 +192,8 @@ fn main() -> Result<(), std::io::Error> {
         }
         let mut chunk = Event::new();
         chunk.summary(&block_name);
-        chunk.starts(block[0]);
-        chunk.ends(block[1]);
+        chunk.starts(block.start_time);
+        chunk.ends(block.end_time);
         plan_chunks.push(chunk);
     }
     let day_plan: Calendar = plan_chunks.into_iter().collect::<Calendar>();

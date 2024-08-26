@@ -9,15 +9,15 @@ edition = "2021"
 license = "EUPL-1.2"
 
 [dependencies]
-http = "1"
+http = "1.1.0"
 log = "0.4.17"
 libdav = { version = "0.4.0", path = "../" }
 rand = "0.8.5"
-tokio = "1.25.0"
-simple_logger = { version = "4.1.0", default-features = false, features = ["colors"] }
-anyhow = { version = "1.0.70", features = ["backtrace"] }
-serde = { version = "1.0.184", features = ["derive"] }
-toml = "0.8.1"
-hyper = "1.0.0"
-hyper-rustls = "0.26.0"
-hyper-util = { version = "0.1.1", features = ["client", "client-legacy", "http1"] }
+tokio = "1.39.3"
+simple_logger = { version = "5.0.0", default-features = false, features = ["colors"] }
+anyhow = { version = "1.0.86", features = ["backtrace"] }
+serde = { version = "1.0.209", features = ["derive"] }
+toml = "0.8.19"
+hyper = "1.4.1"
+hyper-rustls = "0.27.2"
+hyper-util = { version = "0.1.7", features = ["client", "client-legacy", "http1"] }

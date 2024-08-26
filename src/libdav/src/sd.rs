@@ -14,8 +14,7 @@ use std::{io, string::FromUtf8Error};
 
 use domain::{
     base::{
-        name::LongChainError, wire::ParseError, Dname, Question, RelativeDname, Rtype,
-        ToRelativeDname,
+        name::LongChainError, wire::ParseError, Name, Question, RelativeName, Rtype, ToRelativeName,
     },
     rdata::Txt,
     resolv::{lookup::srv::SrvError, StubResolver},
@@ -75,7 +74,7 @@ where
     let domain = client.base_url.host().ok_or(InvalidUrl::MissingHost)?;
     let port = client.base_url.port_u16().unwrap_or(service.default_port());
 
-    let dname = Dname::bytes_from_str(domain).map_err(InvalidUrl::InvalidDomain)?;
+    let dname = Name::bytes_from_str(domain).map_err(InvalidUrl::InvalidDomain)?;
     let host_candidates = resolve_srv_record(service, &dname, port)
         .await?
         .ok_or(BootstrapError::NotAvailable)?;
@@ -134,12 +133,12 @@ impl DiscoverableService {
     /// Relative domain suitable for querying this service type.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn relative_domain(self) -> &'static RelativeDname<[u8]> {
+    pub fn relative_domain(self) -> &'static RelativeName<[u8]> {
         match self {
-            DiscoverableService::CalDavs => RelativeDname::from_slice(b"\x08_caldavs\x04_tcp"),
-            DiscoverableService::CalDav => RelativeDname::from_slice(b"\x07_caldav\x04_tcp"),
-            DiscoverableService::CardDavs => RelativeDname::from_slice(b"\x09_carddavs\x04_tcp"),
-            DiscoverableService::CardDav => RelativeDname::from_slice(b"\x08_carddav\x04_tcp"),
+            DiscoverableService::CalDavs => RelativeName::from_slice(b"\x08_caldavs\x04_tcp"),
+            DiscoverableService::CalDav => RelativeName::from_slice(b"\x07_caldav\x04_tcp"),
+            DiscoverableService::CardDavs => RelativeName::from_slice(b"\x09_carddavs\x04_tcp"),
+            DiscoverableService::CardDav => RelativeName::from_slice(b"\x08_carddav\x04_tcp"),
         }
         .expect("well known relative prefix is valid")
     }
@@ -203,7 +202,7 @@ impl DiscoverableService {
 /// - <https://www.rfc-editor.org/rfc/rfc6764>
 pub async fn resolve_srv_record(
     service: DiscoverableService,
-    domain: &Dname<impl AsRef<[u8]>>,
+    domain: &Name<impl AsRef<[u8]>>,
     port: u16,
 ) -> Result<Option<Vec<(String, u16)>>, SrvError> {
     Ok(StubResolver::new()
@@ -253,11 +252,11 @@ pub enum TxtError {
 /// <https://www.rfc-editor.org/rfc/rfc6764>
 pub async fn find_context_path_via_txt_records(
     service: DiscoverableService,
-    domain: &Dname<impl AsRef<[u8]>>,
+    domain: &Name<impl AsRef<[u8]>>,
 ) -> Result<Option<String>, TxtError> {
     let resolver = StubResolver::new();
     let full_domain = service.relative_domain().chain(domain)?;
-    let question = Question::new_in(full_domain, Rtype::Txt);
+    let question = Question::new_in(full_domain, Rtype::TXT);
 
     let response = resolver.query(question).await?;
     let Some(record) = response.answer()?.next() else {
