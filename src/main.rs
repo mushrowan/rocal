@@ -1,18 +1,16 @@
-use crate::libdav::{
-    auth::{Auth, Password},
-    dav::WebDavClient,
-    CalDavClient,
-};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
 use dirs::home_dir;
 use http::Uri;
 use hyper_rustls::HttpsConnectorBuilder;
 use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
 use inquire::{DateSelect, Text};
+use libdav::{
+    auth::{Auth, Password},
+    dav::WebDavClient,
+    CalDavClient,
+};
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
-
-pub mod libdav;
 
 // Roadmap:
 // for all the remaining timeblocks, prompt for a thing to do - suggest tasks.
@@ -21,20 +19,32 @@ fn get_timeblocks(
     start_time: NaiveDateTime,
     end_time: NaiveDateTime,
     chunk_duration: TimeDelta,
-) -> Vec<[NaiveDateTime; 2]> {
-    let mut current_chunk_endtime = start_time + chunk_duration;
+) -> Vec<TimeBlock> {
+    let mut current_chunk = TimeBlock::new(start_time, chunk_duration);
     let mut timeblocks = vec![];
-    while current_chunk_endtime <= end_time {
-        timeblocks.push([
-            current_chunk_endtime - chunk_duration,
-            current_chunk_endtime,
-        ]);
-        current_chunk_endtime += chunk_duration;
+    while current_chunk.end_time <= end_time {
+        timeblocks.push([current_chunk]);
+        current_chunk = TimeBlock::new(current_chunk.start_time + chunk_duration, chunk_duration);
     }
     timeblocks
 }
 
-fn event_intersects_with_timeblock(timeblock: [NaiveDateTime; 2], event: &Event) -> bool {
+struct TimeBlock {
+    start_time: NaiveDateTime,
+    block_duration: TimeDelta,
+    end_time: NaiveDateTime,
+}
+impl TimeBlock {
+    fn new(start: NaiveDateTime, duration: TimeDelta) -> Self {
+        Self {
+            start_time: start,
+            block_duration: duration,
+            end_time: start + block,
+        }
+    }
+}
+
+fn event_intersects_with_timeblock(timeblock: TimeBlock, event: &Event) -> bool {
     match (event.get_start(), event.get_end()) {
         (Some(DatePerhapsTime::DateTime(es_)), Some(DatePerhapsTime::DateTime(ee_))) => {
             // I don't know if there's an easier way to do this, but try_into_utc seems to be funky
@@ -48,18 +58,15 @@ fn event_intersects_with_timeblock(timeblock: [NaiveDateTime; 2], event: &Event)
             let es: NaiveDateTime = es_local.naive_local();
             let ee: NaiveDateTime = ee_local.naive_local();
 
-            (timeblock[0] <= es && es < timeblock[1])
-                || (timeblock[0] < ee && ee <= timeblock[1])
-                || (es <= timeblock[0] && timeblock[1] <= ee)
+            (timeblock.start_time <= es && es < timeblock.end_time)
+                || (timeblock.start_time < ee && ee <= timeblock.end_time)
+                || (es <= timeblock.start_time && timeblock.end_time <= ee)
         }
         _ => false,
     }
 }
 
-fn remove_intersecting_segments(
-    event: &Event,
-    mut timeblocks: Vec<[NaiveDateTime; 2]>,
-) -> Vec<[NaiveDateTime; 2]> {
+fn remove_intersecting_segments(event: &Event, mut timeblocks: Vec<TimeBlock>) -> Vec<TimeBlock> {
     timeblocks.retain(|&block| !event_intersects_with_timeblock(block, event));
     timeblocks
 }
@@ -116,11 +123,16 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
 
 fn main() -> Result<(), std::io::Error> {
     println!("welcome to rocal!");
-    let tomorrow = Local::now().date_naive() + TimeDelta::days(1);
+    let day = DateSelect::new("When do you want to plan for?")
+        .with_starting_date(Local::today().naive_local())
+        .with_week_start(chrono::Weekday::Sun)
+        // .with_help_message("Possible flights will be displayed according to the selected date")
+        .prompt()
+        .expect("prompting for date failed. somehow.");
     let st: NaiveTime = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
     let et: NaiveTime = NaiveTime::from_hms_opt(19, 0, 0).unwrap();
-    let start_datetime = NaiveDateTime::new(tomorrow, st);
-    let end_datetime = NaiveDateTime::new(tomorrow, et);
+    let start_datetime = NaiveDateTime::new(day, st);
+    let end_datetime = NaiveDateTime::new(day, et);
     let chunk_duration: TimeDelta = TimeDelta::minutes(30);
     let mut timeblocks = get_timeblocks(start_datetime, end_datetime, chunk_duration);
     // let cal_dir = Path::new("/home/rain/.calendar/ro");
@@ -148,7 +160,7 @@ fn main() -> Result<(), std::io::Error> {
 
     let all_events_on_day = all_calendars
         .into_iter()
-        .map(|c| get_events_on_day(tomorrow, c))
+        .map(|c| get_events_on_day(day, c))
         .collect::<Vec<_>>()
         .concat();
     // debug
@@ -161,12 +173,6 @@ fn main() -> Result<(), std::io::Error> {
     }
     let mut plan_chunks: Vec<Event> = vec![];
     let mut blocks_without_break: u8 = 0;
-    let date_selector = DateSelect::new("When do you want to plan for?")
-        .with_starting_date(Local::today().naive_local())
-        .with_week_start(chrono::Weekday::Sun)
-        // .with_help_message("Possible flights will be displayed according to the selected date")
-        .prompt()
-        .expect("prompting for date failed. somehow.");
     for block in &timeblocks {
         if blocks_without_break >= 4 {
             println!(

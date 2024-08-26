@@ -5,16 +5,12 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
-chrono-tz = "0.9.0"
-dir = "0.1.2"
 dirs = "5.0.1"
 http = "1.1.0"
 hyper-rustls = "0.27.2"
-hyper-tls = "0.6.0"
 icalendar = { version = "0.16.3", features = ["chrono-tz"] }
 inquire = { version = "0.7.5", features = ["date"] }
 libdav = "0.4.0"
-reqwest = "0.12.7"
 
 [patch.crates-io]
-libdav = { path = "src/libdav" }
+libdav = { path = "./src/libdav" }
