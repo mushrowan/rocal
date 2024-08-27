@@ -1,12 +1,15 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
 use dirs::home_dir;
 use http::Uri;
-use hyper_rustls::HttpsConnectorBuilder;
+// use hyper::TlsConnector;
+use futures::executor::block_on;
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+use hyper_util::client::legacy::connect::HttpConnector;
 use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
 use inquire::{DateSelect, Text};
 use libdav::{
     auth::{Auth, Password},
-    dav::WebDavClient,
+    dav::{WebDavClient, WebDavError},
     CalDavClient,
 };
 use std::fs::{read_to_string, write};
@@ -78,11 +81,11 @@ fn read_calendar_from_file(cf: PathBuf) -> Calendar {
     cal
 }
 
-fn get_calendar_from_caldav() {
+fn create_caldav_client() -> CalDavClient<HttpsConnector<HttpConnector>> {
     let uri = "https://calendar.roro.digital".parse::<Uri>().unwrap();
     let auth = Auth::Basic {
         username: String::from("ro"),
-        password: Some(Password::from("stuffs")),
+        password: Some(Password::from("astrogamer8321hn3294fasdf")),
     };
 
     let https = HttpsConnectorBuilder::new()
@@ -93,7 +96,7 @@ fn get_calendar_from_caldav() {
         .build();
     let webdav = WebDavClient::new(uri, auth, https);
     // Optionally, perform bootstrap sequence here.
-    let client = CalDavClient::new(webdav);
+    CalDavClient::new(webdav)
 }
 
 fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
@@ -121,7 +124,13 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
     }
     events_on_target_date
 }
+async fn create_testing_cal(
+    client: &CalDavClient<HttpsConnector<HttpConnector>>,
+) -> Result<(), WebDavError> {
+    client.create_calendar("testing").await
+}
 
+#[tokio::main(flavor = "current_thread")]
 fn main() -> Result<(), std::io::Error> {
     println!("welcome to rocal!");
     let day = DateSelect::new("When do you want to plan for?")
@@ -140,6 +149,10 @@ fn main() -> Result<(), std::io::Error> {
     let mut cal_dir = home_dir().expect("unable to get home directory.");
     cal_dir.push(".calendar");
     cal_dir.push("ro");
+
+    let client = create_caldav_client();
+    let res = create_testing_cal(&client);
+    block_on(res);
 
     let cal_dir_contents = cal_dir
         .read_dir()
