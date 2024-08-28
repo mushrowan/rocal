@@ -98,7 +98,10 @@ async fn create_caldav_client() -> CalDavClient<HttpsConnector<HttpConnector>> {
         .build();
     let webdav = WebDavClient::new(uri, auth, https);
     // Optionally, perform bootstrap sequence here.
-    CalDavClient::new_via_bootstrap(webdav).await.unwrap()
+    // CalDavClient::new(webdav).unwrap()
+    CalDavClient::new_via_bootstrap(webdav)
+        .await
+        .expect("Unable to bootstrap caldav client")
 }
 
 fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
@@ -131,12 +134,22 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
 //     client.create_calendar("testing").await
 // }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     println!("welcome to rocal!");
     let client = create_caldav_client().await;
-    println!("client created");
-    client.create_calendar("testing").await?;
+    let user_principal = client
+        .find_current_user_principal()
+        .await
+        .expect("unable to find current user principal")
+        .expect("No current user principal found, or 404 returned.");
+    let calendar_home_set = client.find_calendar_home_set(&user_principal).await?;
+    let first_calendar_home_set = calendar_home_set.first().unwrap();
+    println!("{:?}", client.base_url());
+
+    client
+        .create_calendar(format!("{}{}/", first_calendar_home_set.path(), "testing"))
+        .await?;
     let day = DateSelect::new("When do you want to plan for?")
         .with_starting_date(Local::today().naive_local())
         .with_week_start(chrono::Weekday::Sun)
