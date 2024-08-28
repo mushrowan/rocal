@@ -1,6 +1,7 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
 use dirs::home_dir;
 use http::Uri;
+use std::error::Error;
 // use hyper::TlsConnector;
 use futures::executor::block_on;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
@@ -10,6 +11,7 @@ use inquire::{DateSelect, Text};
 use libdav::{
     auth::{Auth, Password},
     dav::{WebDavClient, WebDavError},
+    sd::find_context_url,
     CalDavClient,
 };
 use std::fs::{read_to_string, write};
@@ -81,7 +83,7 @@ fn read_calendar_from_file(cf: PathBuf) -> Calendar {
     cal
 }
 
-fn create_caldav_client() -> CalDavClient<HttpsConnector<HttpConnector>> {
+async fn create_caldav_client() -> CalDavClient<HttpsConnector<HttpConnector>> {
     let uri = "https://calendar.roro.digital".parse::<Uri>().unwrap();
     let auth = Auth::Basic {
         username: String::from("ro"),
@@ -91,12 +93,12 @@ fn create_caldav_client() -> CalDavClient<HttpsConnector<HttpConnector>> {
     let https = HttpsConnectorBuilder::new()
         .with_native_roots()
         .expect("no native root CA certificates found")
-        .https_only()
+        .https_or_http()
         .enable_http1()
         .build();
     let webdav = WebDavClient::new(uri, auth, https);
     // Optionally, perform bootstrap sequence here.
-    CalDavClient::new(webdav)
+    CalDavClient::new_via_bootstrap(webdav).await.unwrap()
 }
 
 fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
@@ -124,15 +126,17 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
     }
     events_on_target_date
 }
-async fn create_testing_cal(
-    client: &CalDavClient<HttpsConnector<HttpConnector>>,
-) -> Result<(), WebDavError> {
-    client.create_calendar("testing").await
-}
 
-#[tokio::main(flavor = "current_thread")]
-fn main() -> Result<(), std::io::Error> {
+// async fn create_testing_cal(client: &CalDavClient<HttpsConnector<HttpConnector>>) {
+//     client.create_calendar("testing").await
+// }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     println!("welcome to rocal!");
+    let client = create_caldav_client().await;
+    println!("client created");
+    client.create_calendar("testing").await?;
     let day = DateSelect::new("When do you want to plan for?")
         .with_starting_date(Local::today().naive_local())
         .with_week_start(chrono::Weekday::Sun)
@@ -149,10 +153,6 @@ fn main() -> Result<(), std::io::Error> {
     let mut cal_dir = home_dir().expect("unable to get home directory.");
     cal_dir.push(".calendar");
     cal_dir.push("ro");
-
-    let client = create_caldav_client();
-    let res = create_testing_cal(&client);
-    block_on(res);
 
     let cal_dir_contents = cal_dir
         .read_dir()
