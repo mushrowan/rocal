@@ -16,6 +16,8 @@ use libdav::{
 };
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use config::Config;
 
 // Roadmap:
 // for all the remaining timeblocks, prompt for a thing to do - suggest tasks.
@@ -136,16 +138,26 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let settings = Config::builder()
+        .add_source(config::File::with_name("src/Settings.toml"))
+        .build()
+        .unwrap()
+        .try_deserialize::<HashMap<String, String>>()
+        .unwrap();
+    println!("{:?}", settings);
     println!("welcome to rocal!");
     let client = create_caldav_client().await;
     let user_principal = client
         .find_current_user_principal()
         .await
-        .expect("unable to find current user principal")
-        .expect("No current user principal found, or 404 returned.");
+        .expect("No current user principal found, or 404 returned.")
+        .expect("unable to find current user principal");
     let calendar_home_set = client.find_calendar_home_set(&user_principal).await?;
+    // Assume that the first home set is the right one.
     let first_calendar_home_set = calendar_home_set.first().unwrap();
+    let existing_calendars = client.find_calendars(&first_calendar_home_set).await.unwrap();
     println!("{:?}", client.base_url());
+    println!("{:?}", existing_calendars);
 
     client
         .create_calendar(format!("{}{}/", first_calendar_home_set.path(), "testing"))
