@@ -1,9 +1,8 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
+use config::Config;
 use dirs::home_dir;
-use http::Uri;
-use std::error::Error;
-// use hyper::TlsConnector;
 use futures::executor::block_on;
+use http::Uri;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
@@ -14,10 +13,10 @@ use libdav::{
     sd::find_context_url,
     CalDavClient,
 };
+use std::collections::HashMap;
+use std::error::Error;
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
-use config::Config;
 
 // Roadmap:
 // for all the remaining timeblocks, prompt for a thing to do - suggest tasks.
@@ -155,7 +154,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let calendar_home_set = client.find_calendar_home_set(&user_principal).await?;
     // Assume that the first home set is the right one.
     let first_calendar_home_set = calendar_home_set.first().unwrap();
-    let existing_calendars = client.find_calendars(&first_calendar_home_set).await.unwrap();
+    let existing_calendars = client
+        .find_calendars(&first_calendar_home_set)
+        .await
+        .unwrap();
     println!("{:?}", client.base_url());
     println!("{:?}", existing_calendars);
 
