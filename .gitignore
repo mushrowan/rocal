@@ -1,3 +1,5 @@
 /target
 /deb-single-rocal
 /result
+/src/Settings.toml
+/output_cal.ics

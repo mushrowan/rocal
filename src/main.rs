@@ -84,11 +84,15 @@ fn read_calendar_from_file(cf: PathBuf) -> Calendar {
     cal
 }
 
-async fn create_caldav_client() -> CalDavClient<HttpsConnector<HttpConnector>> {
-    let uri = "https://calendar.roro.digital".parse::<Uri>().unwrap();
+async fn create_caldav_client(
+    uri: String,
+    user: String,
+    pass: String,
+) -> CalDavClient<HttpsConnector<HttpConnector>> {
+    let uri = uri.parse::<Uri>().unwrap();
     let auth = Auth::Basic {
-        username: String::from("ro"),
-        password: Some(Password::from("astrogamer8321hn3294fasdf")),
+        username: user,
+        password: Some(Password::from(pass)),
     };
 
     let https = HttpsConnectorBuilder::new()
@@ -143,9 +147,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap()
         .try_deserialize::<HashMap<String, String>>()
         .unwrap();
-    println!("{:?}", settings);
+
+    // probably a better way to do this using borrowing, but works for now.
+    let uri = settings["calendar_url"].clone();
+    let username = settings["calendar_username"].clone();
+    let password = settings["calendar_password"].clone();
+
     println!("welcome to rocal!");
-    let client = create_caldav_client().await;
+
+    let client = create_caldav_client(uri, username, password).await;
+
+    // Finding the user principal, e.g. /ro/
     let user_principal = client
         .find_current_user_principal()
         .await
@@ -161,9 +173,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("{:?}", client.base_url());
     println!("{:?}", existing_calendars);
 
-    client
-        .create_calendar(format!("{}{}/", first_calendar_home_set.path(), "testing"))
-        .await?;
+    // Testing function which creates a calendar. Breaks if the calendar
+    // already exists.
+    // client
+    //     .create_calendar(format!("{}{}/", first_calendar_home_set.path(), "testing"))
+    //     .await?;
+
     let day = DateSelect::new("When do you want to plan for?")
         .with_starting_date(Local::today().naive_local())
         .with_week_start(chrono::Weekday::Sun)
@@ -187,15 +202,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .map(|p| p.expect("failed to get Direntry").path())
         .collect::<Vec<_>>();
 
-    for cal_file in &cal_dir_contents {
-        println!("cal file: {:?}", cal_file)
-    }
-
     let all_calendars = cal_dir_contents
         .into_iter()
-        //.filter(|p| p.ends_with(".ics"))
-        //.collect::<Vec<_>>()
-        //.into_iter()
         .map(read_calendar_from_file)
         .collect::<Vec<_>>();
 
@@ -204,11 +212,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .map(|c| get_events_on_day(day, c))
         .collect::<Vec<_>>()
         .concat();
-    // debug
+
     for event in &all_events_on_day {
         timeblocks = remove_intersecting_segments(event, timeblocks);
     }
-    dbg!(&timeblocks);
+
+    // Day planning bit
     let mut plan_chunks: Vec<Event> = vec![];
     let mut blocks_without_break: u8 = 0;
     for block in &timeblocks {
@@ -236,10 +245,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         chunk.ends(block.end_time);
         plan_chunks.push(chunk);
     }
+
     let day_plan: Calendar = plan_chunks.into_iter().collect::<Calendar>();
-    let mut debug_output_cal = cal_dir.clone();
-    debug_output_cal.push("test_output_cal.ics");
-    let _ = write(debug_output_cal, format!("{}", day_plan));
+    // let mut debug_output_cal = cal_dir.clone();
+    // debug_output_cal.push("test_output_cal.ics");
+    let debug_output_cal = "./output_cal.ics";
+    let ics = write(debug_output_cal, format!("{}", day_plan));
 
     Ok(())
 }
