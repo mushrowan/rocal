@@ -1,5 +1,7 @@
 # rocal: Ro's Calendar
 
+current progress is in the caldav-initial-support branch
+
 ## A CalDAV-compatible TUI calendar & planner application
 
 ## WORK IN PROGRESS
