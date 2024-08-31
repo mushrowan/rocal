@@ -158,7 +158,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // remote cals from given hrefs.
     // 4. if succeeded, add remote cals to a vec of remote cals successfully
     // accessed. if not, warn.
-    let settings_result = try_deserialize_settings(&"src/Settings.toml");
+    let settings_result = try_deserialize_settings(&"src/config.toml");
     if let Ok(settings) = settings_result {
         println!("Settings successfully deserialized");
     }
