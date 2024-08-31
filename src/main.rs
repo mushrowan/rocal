@@ -142,7 +142,7 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
 
 fn try_build_settings() {}
 
-fn try_deserialize_settings(path: &str) -> Result<Config, ConfigError> {
+fn try_deserialize_settings(path: &str) -> Result<HashMap<String, String>, ConfigError> {
     Config::builder()
         .add_source(config::File::with_name(path))
         .build()
@@ -158,21 +158,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // remote cals from given hrefs.
     // 4. if succeeded, add remote cals to a vec of remote cals successfully
     // accessed. if not, warn.
-    let settings_result = try_deserialize_settings(&"src/config.toml");
-    if let Ok(settings) = settings_result {
-        println!("Settings successfully deserialized");
-    }
-    match settings_result {
-        Ok(settings) => {}
-        Err(_) => {
-            panic!("shit is fuckeddddd");
-        }
-    }
+    let settings = try_deserialize_settings(&"src/config.toml")?;
 
     // probably a better way to do this using borrowing, but works for now.
     let uri = settings["calendar_url"].clone();
     let username = settings["calendar_username"].clone();
     let password = settings["calendar_password"].clone();
+    let working_calendar = settings["calendar_href"].clone();
 
     println!("welcome to rocal!");
     menu();
@@ -192,12 +184,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .find_calendars(&first_calendar_home_set)
         .await
         .unwrap();
-    // .map(|foundres| foundres.href);
     let mut calendar_hrefs_in_home_set = vec![];
     for cal in existing_calendars {
-        existing_calendars.push(cal.href);
+        calendar_hrefs_in_home_set.push(cal.href);
     }
-    println!("{:?}", existing_calendars);
+    if !calendar_hrefs_in_home_set.contains(&working_calendar) {
+        println!("Calendar {} not found, creating...", &working_calendar);
+        client.create_calendar(&working_calendar).await?;
+    }
+    let resources = client.list_resources(&working_calendar).await?;
+    let stdbg: NaiveTime = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
+    let etdbg: NaiveTime = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+    let mut dbgchunk = Event::new();
+    dbgchunk.summary("testingevent");
+    dbgchunk.starts(stdbg);
+    dbgchunk.ends(etdbg);
+    let dbg_event_string = dbgchunk.to_string();
+    dbg!(&resources);
 
     // Testing function which creates a calendar. Breaks if the calendar
     // already exists.
