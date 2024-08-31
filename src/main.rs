@@ -1,16 +1,16 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Utc};
-use config::Config;
+use config::{Config, ConfigError};
 use dirs::home_dir;
 use futures::executor::block_on;
 use http::Uri;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, EventLike};
-use inquire::{DateSelect, Text};
+use inquire::{DateSelect, Select, Text};
 use libdav::{
     auth::{Auth, Password},
     dav::{WebDavClient, WebDavError},
-    sd::find_context_url,
+    sd::{find_context_url, BootstrapError},
     CalDavClient,
 };
 use std::collections::HashMap;
@@ -88,7 +88,7 @@ async fn create_caldav_client(
     uri: String,
     user: String,
     pass: String,
-) -> CalDavClient<HttpsConnector<HttpConnector>> {
+) -> Result<CalDavClient<HttpsConnector<HttpConnector>>, BootstrapError> {
     let uri = uri.parse::<Uri>().unwrap();
     let auth = Auth::Basic {
         username: user,
@@ -104,9 +104,14 @@ async fn create_caldav_client(
     let webdav = WebDavClient::new(uri, auth, https);
     // Optionally, perform bootstrap sequence here.
     // CalDavClient::new(webdav).unwrap()
-    CalDavClient::new_via_bootstrap(webdav)
-        .await
-        .expect("Unable to bootstrap caldav client")
+    CalDavClient::new_via_bootstrap(webdav).await
+}
+
+fn menu() -> Result<(), Box<dyn Error>> {
+    let main_options = vec!["plan", "sync", "config", "quit"];
+
+    let options = Select::new("Select a menu option: ", main_options).prompt()?;
+    Ok(())
 }
 
 fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
@@ -135,18 +140,34 @@ fn get_events_on_day(day: NaiveDate, cal: Calendar) -> Vec<Event> {
     events_on_target_date
 }
 
-// async fn create_testing_cal(client: &CalDavClient<HttpsConnector<HttpConnector>>) {
-//     client.create_calendar("testing").await
-// }
+fn try_build_settings() {}
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let settings = Config::builder()
-        .add_source(config::File::with_name("src/Settings.toml"))
+fn try_deserialize_settings(path: &str) -> Result<Config, ConfigError> {
+    Config::builder()
+        .add_source(config::File::with_name(path))
         .build()
         .unwrap()
         .try_deserialize::<HashMap<String, String>>()
-        .unwrap();
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn Error>> {
+    // 1. check if there is a config. if no config, prompt for requireds.
+    // 2. if any requireds missing from existing config, prompt for those.
+    // 3. if there is a config for remote cals, attempt to fetch the given
+    // remote cals from given hrefs.
+    // 4. if succeeded, add remote cals to a vec of remote cals successfully
+    // accessed. if not, warn.
+    let settings_result = try_deserialize_settings(&"src/Settings.toml");
+    if let Ok(settings) = settings_result {
+        println!("Settings successfully deserialized");
+    }
+    match settings_result {
+        Ok(settings) => {}
+        Err(_) => {
+            panic!("shit is fuckeddddd");
+        }
+    }
 
     // probably a better way to do this using borrowing, but works for now.
     let uri = settings["calendar_url"].clone();
@@ -154,8 +175,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let password = settings["calendar_password"].clone();
 
     println!("welcome to rocal!");
+    menu();
 
-    let client = create_caldav_client(uri, username, password).await;
+    let client = create_caldav_client(uri, username, password).await?;
 
     // Finding the user principal, e.g. /ro/
     let user_principal = client
@@ -170,7 +192,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .find_calendars(&first_calendar_home_set)
         .await
         .unwrap();
-    println!("{:?}", client.base_url());
+    // .map(|foundres| foundres.href);
+    let mut calendar_hrefs_in_home_set = vec![];
+    for cal in existing_calendars {
+        existing_calendars.push(cal.href);
+    }
     println!("{:?}", existing_calendars);
 
     // Testing function which creates a calendar. Breaks if the calendar
