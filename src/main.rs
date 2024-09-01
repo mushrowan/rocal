@@ -9,7 +9,8 @@ use icalendar::{Calendar, CalendarComponent, Component, DatePerhapsTime, Event, 
 use inquire::{DateSelect, Select, Text};
 use libdav::{
     auth::{Auth, Password},
-    dav::{WebDavClient, WebDavError},
+    dav::{mime_types, WebDavClient, WebDavError},
+    names,
     sd::{find_context_url, BootstrapError},
     CalDavClient,
 };
@@ -193,14 +194,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
         client.create_calendar(&working_calendar).await?;
     }
     let resources = client.list_resources(&working_calendar).await?;
-    let stdbg: NaiveTime = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
-    let etdbg: NaiveTime = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+    // let calendar_data = client.get_calendar_resources
+    let stdbg_: NaiveTime = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
+    let etdbg_: NaiveTime = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+    let stdbg = NaiveDateTime::new(Local::today().naive_local(), stdbg_);
+    let etdbg = NaiveDateTime::new(Local::today().naive_local(), etdbg_);
     let mut dbgchunk = Event::new();
     dbgchunk.summary("testingevent");
     dbgchunk.starts(stdbg);
     dbgchunk.ends(etdbg);
-    let dbg_event_string = dbgchunk.to_string();
+    let dbg_event_string = &dbgchunk.to_string();
     dbg!(&resources);
+    let cal_data = client
+        .get_property(&working_calendar, &names::CALENDAR_DATA)
+        .await?;
+    dbg!(&cal_data);
+    for listed_resource in &resources {
+        let event_data = client
+            .get_property(&listed_resource.href, &names::CALENDAR_DATA)
+            .await?;
+        dbg!(&event_data);
+    }
+    let mut debug_calendar = Calendar::new();
+    debug_calendar.push(dbgchunk);
+    // client
+    //     .set_property(
+    //         &working_calendar,
+    //         &names::CALENDAR_DATA,
+    //         Some(&format!("{}", debug_calendar)),
+    //     )
+    //     .await?;
 
     // Testing function which creates a calendar. Breaks if the calendar
     // already exists.
