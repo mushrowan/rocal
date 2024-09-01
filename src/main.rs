@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{read_to_string, write};
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 // Roadmap:
 // for all the remaining timeblocks, prompt for a thing to do - suggest tasks.
@@ -104,8 +105,8 @@ async fn create_caldav_client(
         .build();
     let webdav = WebDavClient::new(uri, auth, https);
     // Optionally, perform bootstrap sequence here.
-    // CalDavClient::new(webdav).unwrap()
-    CalDavClient::new_via_bootstrap(webdav).await
+    //CalDavClient::new(webdav).await
+    Ok(CalDavClient::new(webdav))
 }
 
 fn menu() -> Result<(), Box<dyn Error>> {
@@ -159,6 +160,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // remote cals from given hrefs.
     // 4. if succeeded, add remote cals to a vec of remote cals successfully
     // accessed. if not, warn.
+    println!("Deserialising settings.");
     let settings = try_deserialize_settings(&"src/config.toml")?;
 
     // probably a better way to do this using borrowing, but works for now.
@@ -168,19 +170,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let working_calendar = settings["calendar_href"].clone();
 
     println!("welcome to rocal!");
-    menu();
+    // menu();
 
+    println!("Creating CalDAV client.");
     let client = create_caldav_client(uri, username, password).await?;
 
     // Finding the user principal, e.g. /ro/
+    println!("Finding current user principal.");
     let user_principal = client
         .find_current_user_principal()
         .await
         .expect("No current user principal found, or 404 returned.")
         .expect("unable to find current user principal");
+    println!("Finding calendar home set.");
     let calendar_home_set = client.find_calendar_home_set(&user_principal).await?;
     // Assume that the first home set is the right one.
     let first_calendar_home_set = calendar_home_set.first().unwrap();
+    println!("Finding existing calendars in home set.");
     let existing_calendars = client
         .find_calendars(&first_calendar_home_set)
         .await
@@ -189,41 +195,41 @@ async fn main() -> Result<(), Box<dyn Error>> {
     for cal in existing_calendars {
         calendar_hrefs_in_home_set.push(cal.href);
     }
+    println!("Checking that working calendar exists in home set.");
     if !calendar_hrefs_in_home_set.contains(&working_calendar) {
         println!("Calendar {} not found, creating...", &working_calendar);
         client.create_calendar(&working_calendar).await?;
     }
-    let resources = client.list_resources(&working_calendar).await?;
     // let calendar_data = client.get_calendar_resources
     let stdbg_: NaiveTime = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
     let etdbg_: NaiveTime = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
     let stdbg = NaiveDateTime::new(Local::today().naive_local(), stdbg_);
     let etdbg = NaiveDateTime::new(Local::today().naive_local(), etdbg_);
+    println!("Setting up test event..");
     let mut dbgchunk = Event::new();
-    dbgchunk.summary("testingevent");
-    dbgchunk.starts(stdbg);
-    dbgchunk.ends(etdbg);
-    let dbg_event_string = &dbgchunk.to_string();
-    dbg!(&resources);
-    let cal_data = client
-        .get_property(&working_calendar, &names::CALENDAR_DATA)
+    dbgchunk = dbgchunk
+        .summary("testingevent")
+        .starts(stdbg)
+        .ends(etdbg)
+        .uid(&Uuid::now_v7().to_string())
+        .done();
+    let chunk_uid = dbgchunk.get_uid().unwrap();
+    let dbgcal = Calendar::new().push(dbgchunk.clone()).done();
+    let calendar_string = format!("{}", dbgcal);
+    let cal_bytes = calendar_string.into_bytes();
+
+    let dbgchunk_href = format!("{}{}", &working_calendar, chunk_uid);
+    dbg!(&dbgchunk_href);
+    client
+        .create_resource(&dbgchunk_href, cal_bytes, mime_types::CALENDAR)
         .await?;
-    dbg!(&cal_data);
-    for listed_resource in &resources {
-        let event_data = client
-            .get_property(&listed_resource.href, &names::CALENDAR_DATA)
-            .await?;
-        dbg!(&event_data);
-    }
-    let mut debug_calendar = Calendar::new();
-    debug_calendar.push(dbgchunk);
-    // client
-    //     .set_property(
-    //         &working_calendar,
-    //         &names::CALENDAR_DATA,
-    //         Some(&format!("{}", debug_calendar)),
-    //     )
-    //     .await?;
+    let created_dbg_res = client
+        .get_calendar_resources(&working_calendar, [dbgchunk_href])
+        .await?;
+    dbg!(created_dbg_res);
+
+    // let mut debug_calendar = Calendar::new();
+    // debug_calendar.push(dbgchunk);
 
     // Testing function which creates a calendar. Breaks if the calendar
     // already exists.
